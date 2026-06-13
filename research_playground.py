@@ -977,42 +977,50 @@ def parse_r21(inner: bytes) -> Optional[R21]:
 
 @dataclass
 class R24:  # type-24 data record, 1 Hz (historical / sync-only).
-    # HEADER is AUTHORITATIVE — straight from the device's generic data-record
-    # class (offset consts f99015g..): [0]=packet type, [1]=record type,
-    # [3:7]=u32 counter, [7:11]=u32 epoch SECONDS (m92869L), [11:13]=u16 SUB-SECONDS
-    # (m92870M), header length 13. [17]=HR byte: the app reads it via C25520b.m92867J
-    # and increments a "NoHr" stat when it's 0, so 0 = no reading.
-    # PAYLOAD past the header is OPAQUE TO THE APP — type 24 falls to the generic
-    # C25520b container (C38608b case 5) and is relayed RAW to WHOOP's cloud; the app
-    # never field-decodes it. So accel_g below is EMPIRICAL (validated: |a|≈1g at rest),
-    # NOT defined anywhere in the app, and the rest stays in raw_tail.
-    ts_epoch: int            # u32 @[7:11]  seconds   — authoritative (C25520b.m92869L)
-    ts_subsec: int           # u16 @[11:13] subseconds — authoritative (C25520b.m92870M)
-    counter: int             # u32 @[3:7]              — authoritative (C25520b.mo86748G)
-    hr: int                  # u8  @[17]    bpm        — authoritative (C25520b.m92867J); 0 = none
-    spo2: int                # u8  @[72]    %          — EMPIRICAL (verified ~92-94 resting)
-    skin_temp_c: float       # [70]/4 °C               — EMPIRICAL (verified: 33→37.5 warming)
-    resting_hr: int          # u8  @[88]    bpm        — EMPIRICAL (held baseline, not live HR)
-    accel_g: tuple           # (x,y,z) float32 g @[36:48] — EMPIRICAL ONLY (app-opaque)
-    raw_tail: str            # [13:] hex — app-opaque payload (WHOOP relays this to its cloud)
+    # Header [3:13] + HR[17] are confirmed (HR matches the live stream within a beat).
+    # The rest of the payload is relayed to WHOOP's cloud uncalibrated. The offsets
+    # below were verified on 127,971 of our own stored records and cross-checked
+    # against an independent implementation; only fields that survived are decoded.
+    # Raw ADCs (spo2_red_raw, skin_temp_raw) are RELATIVE — WHOOP computes SpO2 % and
+    # °C server-side, never on the wire. Everything else stays in raw_tail.
+    ts_epoch: int            # u32 @[7:11]  unix seconds
+    ts_subsec: int           # u16 @[11:13] sub-seconds
+    counter: int             # u32 @[3:7]   record counter (+1/rec)
+    hr: int                  # u8  @[17]    bpm; 0 = no reading
+    rr_count: int            # u8  @[18]    R-R intervals in this record (0–4)
+    rr_intervals_ms: list    # i16 LE from [19], rr_count of them — ms (the HRV source)
+    ppg_green: int           # u16 @[29]    raw green-LED PPG ADC (pulsatile)
+    accel_g: tuple           # (x,y,z) float32 g @[36:48]; |g|≈1 at rest (corpus mean 1.012)
+    spo2_red_raw: int        # u16 @[64]    raw red ADC — RELATIVE (SpO2 % computed in cloud)
+    skin_temp_raw: int       # u16 @[68]    raw temp ADC — RELATIVE (°C computed in cloud)
+    raw_tail: str            # [13:] hex — kept so records can be re-decoded later
 
 
 def parse_r24(inner: bytes) -> Optional[R24]:
-    # Header [0:13] + HR[17] are verified; spo2/temp/resting_hr/accel
-    # are EMPIRICAL fingerprints (correlation/physiology), since the app relays the
-    # payload raw to its cloud. See PROTOCOL.md §type-24.
     if len(inner) < 89:
         return None
+    n = inner[18]
+    rr = []
+    o = 19
+    for _ in range(n):
+        if o + 2 > len(inner):
+            break
+        v = _i16(inner, o)
+        if v > 0:
+            rr.append(v)
+        o += 2
     return R24(
         ts_epoch=_u32(inner, 7),
         ts_subsec=_u16(inner, 11),
         counter=_u32(inner, 3),
         hr=inner[17],
-        spo2=inner[72],
-        skin_temp_c=round(inner[70] / 4.0, 2),
-        resting_hr=inner[88],
+        rr_count=n,
+        rr_intervals_ms=rr,
+        ppg_green=_u16(inner, 29),
         accel_g=(round(_f32(inner, 36), 4), round(_f32(inner, 40), 4),
                  round(_f32(inner, 44), 4)),
+        spo2_red_raw=_u16(inner, 64),
+        skin_temp_raw=_u16(inner, 68),
         raw_tail=inner[13:].hex(),
     )
 
@@ -1175,8 +1183,9 @@ def _decode_data_record(inner: bytes) -> dict:
         r = parse_r24(inner)
         if r: return {"kind": "R24_telemetry", "ts_epoch": r.ts_epoch,
                       "ts_subsec": r.ts_subsec, "counter": r.counter, "hr": r.hr,
-                      "spo2": r.spo2, "skin_temp_c": r.skin_temp_c,
-                      "resting_hr": r.resting_hr, "accel_g": r.accel_g,
+                      "rr_count": r.rr_count, "rr_intervals_ms": r.rr_intervals_ms,
+                      "ppg_green": r.ppg_green, "accel_g": r.accel_g,
+                      "spo2_red_raw": r.spo2_red_raw, "skin_temp_raw": r.skin_temp_raw,
                       "raw_tail": r.raw_tail}
     elif rec_type == Record.R25:
         rr = parse_r25(inner)
