@@ -140,8 +140,11 @@ inner = [0x23 COMMAND][seq][0x17 HISTORICAL_DATA_RESULT][0x01 SUCCESS] + token(8
 ## 5. The 1 Hz record (type-24) — 96 bytes — the main payload
 
 Drained from flash via §4; one per second of wear. The **header + HR are verified**;
-the rest is **empirical** (the band relays it raw and the cloud decodes it, so it was
-fingerprinted across hundreds of real records).
+the sensor block is **raw/RELATIVE** (the band relays it uncalibrated and the cloud
+derives %SpO₂/°C). Offsets below were re-validated by **per-byte variance analysis**
+across **811 real records** (550 golden capture + 261 R2 spanning 113 h) and
+cross-checked against two independent decoders (contributor/wearable; reference implementation
+V24). A field is listed only if it actually VARIES like a sensor.
 
 | Bytes | Field | Confidence |
 |---|---|---|
@@ -152,15 +155,28 @@ fingerprinted across hundreds of real records).
 | `[7:11]` | **u32 UNIX timestamp (s)** | verified |
 | `[11:13]` | u16 sub-seconds | verified |
 | `[17]` | **heart rate (bpm)**; 0 = no reading | verified |
-| `[36:48]` | tri-axial accel (g), float32 ×3 (duplicated at `[52:64]`) | empirical |
-| `[64]`/`[70]` | temperature channel (`≈ [70]/4 °C`) | empirical (thermal vs optical-gain **unverified**) |
-| `[72]` | SpO₂ (%) | empirical |
-| `[88]` | resting/baseline HR (held value, ≠ live HR) | empirical |
-| `[64:96]` | a TLV block; temp/SpO₂/RHR are slots in it | empirical |
+| `[18]` + `[19:19+2n]` | rr_count (u8) + R-R intervals (i16 LE, ms) | verified (HRV source) |
+| `[29]` | u16 raw green PPG ADC | validated (varies) |
+| `[31]` | u16 raw red/IR PPG ADC | validated (varies) |
+| `[36:48]` | tri-axial accel (g), float32 ×3 | verified |
+| `[51]` | u8 skin-contact **quality** (0–198) — NOT a wear flag | validated (varies) |
+| `[52:64]` | f32 ×3 — **byte-identical mirror of `[36:48]`** (not an extra sensor) | validated (=accel) |
+| `[64]` | u16 raw **red** ADC — RELATIVE | validated (varies) |
+| `[66]` | u16 raw **IR** ADC — RELATIVE (pairs with red → SpO₂ ratio) | validated (varies) |
+| `[68]` | u16 raw **skin-temp** ADC — RELATIVE (°C in cloud) | validated (varies) |
+| `[70]` | u16 raw **ambient-light** ADC — RELATIVE | validated (varies) |
+| `[72]`/`[74]` | u16 LED-drive current (config; near-constant) | config, not biometric |
+| `[76]` | ~~resp_rate_raw~~ — **bit-constant 3073** across all 811 records | **rejected** (fixed trailer) |
+| `[78]` | ~~signal_quality~~ — **bit-constant 3074** | **rejected** (fixed trailer) |
+| `[88]` | u8 resting/baseline HR (held value, varies slowly, ≠ live HR) | empirical |
 
-**Unknown:** `[68]` (weak temp correlation); a raw-PPG-ish cluster
-(`[19],[21],[29],[31:35],[49:51],[85]`); small flags/counters. The full payload is
-preserved verbatim in `parse_r24().raw_tail` so it can be re-decoded later.
+> ⚠️ **Corrected 2026-06-20.** Earlier revisions read SpO₂ as u8 `[72]` and temp as
+> `[70]/4 °C`; both were **misidentified** — `[72]` is LED-drive config and `[70]` is the
+> ambient-light ADC. The real raw ADCs are red `[64]` / IR `[66]` / temp `[68]` / ambient
+> `[70]`, all u16. Respiration is **not** in the record (the `resp_rate_raw[76]` other
+> projects list is bit-constant here); WHOOP derives it in-cloud from PPG, which the
+> backend mirrors in `resp.ts`. The full payload is still preserved verbatim in
+> `parse_r24().raw_tail` so records can be re-decoded as the map improves.
 
 > Decoder: `research_playground.py:parse_r24`. Historical flash typically holds only
 > type-24; raw R10/R21 records are **live-stream only**.

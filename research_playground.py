@@ -990,10 +990,17 @@ class R24:  # type-24 data record, 1 Hz (historical / sync-only).
     rr_count: int            # u8  @[18]    R-R intervals in this record (0–4)
     rr_intervals_ms: list    # i16 LE from [19], rr_count of them — ms (the HRV source)
     ppg_green: int           # u16 @[29]    raw green-LED PPG ADC (pulsatile)
+    ppg_red_ir: int          # u16 @[31]    raw red/IR-LED PPG ADC — RELATIVE
+    skin_contact: int        # u8  @[51]    contact quality 0–198 (NOT a wear flag)
     accel_g: tuple           # (x,y,z) float32 g @[36:48]; |g|≈1 at rest (corpus mean 1.012)
     spo2_red_raw: int        # u16 @[64]    raw red ADC — RELATIVE (SpO2 % computed in cloud)
+    spo2_ir_raw: int         # u16 @[66]    raw IR ADC — RELATIVE (pairs with red → SpO2 ratio)
     skin_temp_raw: int       # u16 @[68]    raw temp ADC — RELATIVE (°C computed in cloud)
+    ambient_raw: int         # u16 @[70]    raw ambient-light ADC — RELATIVE
     raw_tail: str            # [13:] hex — kept so records can be re-decoded later
+    # NOTE: the f32 triplet @[52:64] is byte-identical to accel_g across 811 records
+    # (mirrored copy, not surfaced); resp_rate_raw@76 / signal_quality@78 are
+    # bit-constant (3073/3074) — a fixed trailer on this firmware, NOT decoded.
 
 
 def parse_r24(inner: bytes) -> Optional[R24]:
@@ -1017,10 +1024,14 @@ def parse_r24(inner: bytes) -> Optional[R24]:
         rr_count=n,
         rr_intervals_ms=rr,
         ppg_green=_u16(inner, 29),
+        ppg_red_ir=_u16(inner, 31),
+        skin_contact=inner[51],
         accel_g=(round(_f32(inner, 36), 4), round(_f32(inner, 40), 4),
                  round(_f32(inner, 44), 4)),
         spo2_red_raw=_u16(inner, 64),
+        spo2_ir_raw=_u16(inner, 66),
         skin_temp_raw=_u16(inner, 68),
+        ambient_raw=_u16(inner, 70),
         raw_tail=inner[13:].hex(),
     )
 
@@ -1184,8 +1195,10 @@ def _decode_data_record(inner: bytes) -> dict:
         if r: return {"kind": "R24_telemetry", "ts_epoch": r.ts_epoch,
                       "ts_subsec": r.ts_subsec, "counter": r.counter, "hr": r.hr,
                       "rr_count": r.rr_count, "rr_intervals_ms": r.rr_intervals_ms,
-                      "ppg_green": r.ppg_green, "accel_g": r.accel_g,
-                      "spo2_red_raw": r.spo2_red_raw, "skin_temp_raw": r.skin_temp_raw,
+                      "ppg_green": r.ppg_green, "ppg_red_ir": r.ppg_red_ir,
+                      "skin_contact": r.skin_contact, "accel_g": r.accel_g,
+                      "spo2_red_raw": r.spo2_red_raw, "spo2_ir_raw": r.spo2_ir_raw,
+                      "skin_temp_raw": r.skin_temp_raw, "ambient_raw": r.ambient_raw,
                       "raw_tail": r.raw_tail}
     elif rec_type == Record.R25:
         rr = parse_r25(inner)
