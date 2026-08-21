@@ -241,6 +241,43 @@ richer.
 | 92 | 4 | natural log of the HR-tracker variance, `float32` |
 | 96 | 3 | zero |
 
+### The two flag words — body 11 and body 15 — **verified**
+
+Both are `u32`. Neither is 32 independent booleans, and both carry fields that *look*
+like data and are not. **Retain each word whole** rather than flattening it.
+
+**Flags word A (body 11).** Only the low half is flag-like — bits 0..8, 11..15 and 28
+are individual signal-processing diagnostics, and bits 9..10 are unwritten. Bits 29..30
+are the low two bits of one four-state internal tracker: a 2-bit value, not two flags.
+Bits 16..27 plus bit 31 serialise a rotating engineering telemetry stream — bits 16..23
+a mode-dependent byte, bits 24..27 a rotating nibble, bit 31 its block-start marker.
+None of bits 16..27 has a fixed standalone meaning across records.
+
+**Flags word B (body 15).**
+
+| bits | meaning |
+|---|---|
+| `0x10` | processing source index 2 (CH3 infrared) is selected — the cleanest source oracle |
+| `0x20` | transition/hold indication from the same three-state switch |
+| `0x40` | set when source 2 is selected, but a global override can also set it; body 11 bit `0x40` mirrors it |
+| `0x80` | a diagnostic-format / special-state marker — **see the warning below** |
+| 8..15 | an HR-domain scalar, **not** flags — see §11 |
+| 16..31 | a frequency-derived pair, **not** R-R data — see below |
+
+> **Bit `0x80` is not a validity bit.** It is not HR-present, HR-valid, confidence,
+> corroboration, quality or walk-detected. It has two producers and the record does not
+> serialise which one fired, so the same wire bit means different things in different
+> states. Heart rate is routinely present and in range while it is clear. **Gate nothing
+> on it.** What actually drives it is **unknown** — neither documented producer condition
+> reproduces cleanly against captured history.
+
+> **Bits 16..31 are not R-R intervals.** They are a frequency-derived pair in cycles per
+> minute. Real R-R intervals live at body 2 and body 3..10, in milliseconds — see §7.
+> Body 17 is written in roughly 98% of records and spans `25..209`; body 18 spans
+> `26..209` and is zero in most records, consistent with a second tracker slot that is
+> frequently absent. Both are engineering diagnostics with no stable per-record name:
+> retain them raw and decode neither as an interval, a rate, nor a bitfield.
+
 ### Sleep state — body 60 bits 4..5 — **verified**
 
 ```
