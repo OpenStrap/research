@@ -9,6 +9,9 @@ that maps out the bytes.
 If the rest of OpenStrap is the product, this is the lab notebook. The decoders that run
 in production got figured out in here first.
 
+Found something, or stuck on something? [Discord](https://discord.gg/dUXds5MWkd) is where
+the reverse-engineering discussion actually happens.
+
 > Not affiliated with, endorsed by, or connected to WHOOP. "WHOOP" is their trademark and
 > I'm only using it to tell you which device this talks to.
 
