@@ -81,6 +81,10 @@ in, `sync` to drain the historical flash properly, `live` to stream HR and motio
 
 The full map is in `PROTOCOL.md`. The short version:
 
+(That doc is Gen 4. If you have a WHOOP 5.0, it speaks a different dialect —
+different service UUID, CRC-16 instead of CRC-8, a richer 1 Hz record that includes
+beat-to-beat R-R intervals. That one is mapped in `PROTOCOL-GEN5.md`.)
+
 Every message is wrapped in a frame: a `0xAA` start byte, a two-byte length, a CRC-8 over
 just those length bytes, the actual payload padded to a multiple of four, and a CRC-32
 over that padded payload. One trap worth knowing, the reassembler keys off the declared

@@ -7,6 +7,11 @@ not certain; **unknown** = not determined.
 
 > Not affiliated with or endorsed by WHOOP. For interoperability with a device you own.
 
+> **This document is Gen 4 only.** WHOOP 5.0 is a different device family — different
+> service UUID, different header checksum, different record layout. See
+> [`PROTOCOL-GEN5.md`](PROTOCOL-GEN5.md). Pointing a Gen 4 decoder at a Gen 5 band
+> produces CRC failures, not subtly wrong data.
+
 The band is a **sensor pipe** — it does no analytics on-device. It records raw +
 lightly-processed sensor records to flash and streams/relays them to a phone. The
 scores (recovery/strain/sleep) are computed off-device in the cloud and are **not**
